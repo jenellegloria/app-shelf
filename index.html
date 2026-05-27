@@ -94,7 +94,7 @@ body.wp-light .empty-msg { color: rgba(0,0,0,0.3); }
   width: var(--icon); height: var(--icon);
   border-radius: var(--radius);
   display: flex; align-items: center; justify-content: center;
-  font-size: 34px; overflow: hidden; position: relative;
+  font-size: 34px; position: relative;
   box-shadow: 0 2px 8px rgba(0,0,0,0.4);
   transition: transform 0.12s ease;
   flex-shrink: 0;
@@ -150,7 +150,7 @@ body.wp-light .icon-label { color: #111; text-shadow: 0 1px 2px rgba(255,255,255
   display: grid; grid-template-columns: 1fr 1fr; grid-template-rows: 1fr 1fr;
   gap: 3px; padding: 7px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.35);
-  position: relative; overflow: hidden;
+  position: relative;
   transition: transform 0.12s ease;
 }
 .icon-cell:active:not(.jiggling) .folder-wrap { transform: scale(0.88); }
@@ -819,7 +819,8 @@ function makeAppCell(app) {
   const delX = document.createElement('div');
   delX.className = 'del-x'; delX.textContent = '×';
   delX.addEventListener('pointerdown', e => { e.stopPropagation(); confirmDelete(app.id); });
-  wrap.appendChild(delX);
+  delX.addEventListener('mousedown', e => { e.stopPropagation(); confirmDelete(app.id); });
+  cell.appendChild(delX);
 
   const lbl = document.createElement('div');
   lbl.className = 'icon-label'; lbl.textContent = app.name;
@@ -840,7 +841,8 @@ function makeFolderCell(folder) {
   const delX = document.createElement('div');
   delX.className = 'del-x'; delX.textContent = '×';
   delX.addEventListener('pointerdown', e => { e.stopPropagation(); confirmDelete(folder.id); });
-  wrap.appendChild(delX);
+  delX.addEventListener('mousedown', e => { e.stopPropagation(); confirmDelete(folder.id); });
+  cell.appendChild(delX);
 
   const preview = (folder.appIds||[]).slice(0,4);
   while(preview.length<4) preview.push(null);
@@ -883,52 +885,71 @@ function confirmDelete(id) {
 // ─────────────────────────────────────────
 function attachCellEvents(cell, id, type) {
   let moved = false;
-  let dragReady = false; // true once we're in edit mode and finger is down
+  let dragReady = false;
+  let mouseDown = false;
 
+  // ── TOUCH ──
   cell.addEventListener('touchstart', e => {
-    moved = false;
-    dragReady = false;
-    if (editMode) {
-      dragReady = true;
-      return; // don't start clone yet
-    }
-    // long press to enter edit mode
-    lpTimer = setTimeout(() => {
-      lpTimer = null;
-      enterEditMode();
-      dragReady = true;
-    }, 520);
+    moved = false; dragReady = false;
+    if (editMode) { dragReady = true; return; }
+    lpTimer = setTimeout(() => { lpTimer=null; enterEditMode(); dragReady=true; }, 520);
   }, {passive: true});
 
   cell.addEventListener('touchmove', e => {
     moved = true;
-    if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
-    if (dragReady && !dragClone) {
-      // start the drag clone now that we know they're actually moving
-      startDragClone(e, cell, id);
-    }
-    if (dragClone) {
-      e.preventDefault();
-      moveDragClone(e);
-    }
+    if (lpTimer) { clearTimeout(lpTimer); lpTimer=null; }
+    if (dragReady && !dragClone) startDragClone(e, cell, id);
+    if (dragClone) { e.preventDefault(); moveDragClone(e); }
   }, {passive: false});
 
   cell.addEventListener('touchend', e => {
-    if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+    if (lpTimer) { clearTimeout(lpTimer); lpTimer=null; }
     dragReady = false;
     if (dragClone) { commitDrop(e); return; }
     if (!moved) {
-      // It's a tap
-      if (editMode) return; // taps do nothing in edit mode (only del badge or done)
-      if (type === 'folder') openFolder(id);
-      else openApp(id);
+      if (editMode) return;
+      if (type==='folder') openFolder(id); else openApp(id);
     }
   });
 
   cell.addEventListener('touchcancel', () => {
-    if (lpTimer) { clearTimeout(lpTimer); lpTimer = null; }
+    if (lpTimer) { clearTimeout(lpTimer); lpTimer=null; }
+    dragReady=false; cancelDrag();
+  });
+
+  // ── MOUSE (desktop) ──
+  let mouseStartX=0, mouseStartY=0;
+  cell.addEventListener('mousedown', e => {
+    if (e.button !== 0) return;
+    mouseDown = true; moved = false; dragReady = false;
+    mouseStartX = e.clientX; mouseStartY = e.clientY;
+    if (editMode) { dragReady = true; return; }
+    lpTimer = setTimeout(() => { lpTimer=null; enterEditMode(); dragReady=true; }, 520);
+  });
+
+  cell.addEventListener('mousemove', e => {
+    if (!mouseDown) return;
+    const dx = e.clientX-mouseStartX, dy = e.clientY-mouseStartY;
+    if (Math.sqrt(dx*dx+dy*dy) > 5) moved = true;
+    if (lpTimer && moved) { clearTimeout(lpTimer); lpTimer=null; }
+    if (dragReady && !dragClone && moved) startDragCloneFromMouse(e, cell, id);
+    if (dragClone) moveDragCloneMouse(e);
+  });
+
+  cell.addEventListener('mouseup', e => {
+    if (!mouseDown) return;
+    mouseDown = false;
+    if (lpTimer) { clearTimeout(lpTimer); lpTimer=null; }
     dragReady = false;
-    cancelDrag();
+    if (dragClone) { commitDropMouse(e); return; }
+    if (!moved) {
+      if (editMode) return;
+      if (type==='folder') openFolder(id); else openApp(id);
+    }
+  });
+
+  cell.addEventListener('mouseleave', e => {
+    // if dragging, keep going (handled on document)
   });
 }
 
@@ -1029,6 +1050,63 @@ function cancelDrag() {
   document.querySelectorAll('.icon-cell').forEach(c=>c.classList.remove('drag-src','drag-over'));
   dragId = null;
 }
+
+
+// ── MOUSE DRAG HELPERS ──
+function startDragCloneFromMouse(e, cell, id) {
+  dragId = id;
+  cell.classList.add('drag-src');
+  const rect = cell.getBoundingClientRect();
+  dragOffX = e.clientX - rect.left;
+  dragOffY = e.clientY - rect.top;
+  const clone = cell.cloneNode(true);
+  clone.classList.remove('drag-src','jiggling');
+  clone.querySelectorAll('.del-x').forEach(x=>x.style.display='none');
+  clone.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;z-index:998;pointer-events:none;transform:scale(1.08);filter:drop-shadow(0 10px 28px rgba(0,0,0,0.6));transition:none;opacity:0.95`;
+  document.body.appendChild(clone);
+  dragClone = clone;
+}
+
+function moveDragCloneMouse(e) {
+  if (!dragClone) return;
+  dragClone.style.left = (e.clientX - dragOffX) + 'px';
+  dragClone.style.top  = (e.clientY - dragOffY) + 'px';
+  dragClone.style.display='none';
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  dragClone.style.display='';
+  const targetCell = el && el.closest('.icon-cell');
+  document.querySelectorAll('.icon-cell.drag-over').forEach(c=>c.classList.remove('drag-over'));
+  if (targetCell && targetCell.dataset.id && targetCell.dataset.id!==dragId) targetCell.classList.add('drag-over');
+}
+
+function commitDropMouse(e) {
+  if (!dragClone) return;
+  dragClone.remove(); dragClone=null;
+  document.querySelectorAll('.icon-cell').forEach(c=>c.classList.remove('drag-src','drag-over'));
+  const el = document.elementFromPoint(e.clientX, e.clientY);
+  const targetCell = el && el.closest('.icon-cell');
+  const dstId = targetCell && targetCell.dataset.id;
+  if (dstId && dstId!==dragId) {
+    const src=items.find(i=>i.id===dragId), dst=items.find(i=>i.id===dstId);
+    if (src && dst) {
+      if (dst.type==='folder' && src.type==='app') {
+        if (!(dst.appIds||[]).includes(dragId)) { if(!dst.appIds)dst.appIds=[]; dst.appIds.push(dragId); saveItems(); renderGrid(); toast('Added to '+dst.name); }
+      } else if (src.type==='app' && dst.type==='app') {
+        const folder={type:'folder',id:uid(),name:'New Folder',appIds:[dstId,dragId]};
+        const dstIdx=items.findIndex(i=>i.id===dstId); items.splice(dstIdx,0,folder);
+        saveItems(); renderGrid(); setTimeout(()=>openFolder(folder.id,true),220);
+      } else {
+        const si=items.findIndex(i=>i.id===dragId), di=items.findIndex(i=>i.id===dstId);
+        if(si>=0&&di>=0){const[m]=items.splice(si,1);items.splice(di,0,m);saveItems();renderGrid();}
+      }
+    }
+  }
+  dragId=null;
+}
+
+// cancel drag on mouseup anywhere on document
+document.addEventListener('mouseup', e => { if(dragClone) { commitDropMouse(e); } });
+document.addEventListener('mousemove', e => { if(dragClone) moveDragCloneMouse(e); });
 
 // ─────────────────────────────────────────
 // EDIT MODE
