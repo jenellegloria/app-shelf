@@ -1177,7 +1177,9 @@ document.getElementById('folder-bg').onclick = closeFolder;
 // ─────────────────────────────────────────
 function showScreen(id) {
   document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
-  document.getElementById(id).classList.add('active');
+  const el = document.getElementById(id);
+  el.classList.remove('from-right');
+  el.classList.add('active');
 }
 
 document.getElementById('runner-back').onclick = () => { showScreen('home'); activeAppId=null; };
