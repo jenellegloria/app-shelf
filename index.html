@@ -1204,15 +1204,26 @@ function loadFrame(app) {
   const frame = document.getElementById('app-frame');
   const K = 'as_d_' + app.id;
 
-  // localStorage proxy — isolates each app's data
+  // localStorage proxy using postMessage — blob URLs have isolated storage
+  // so we relay all reads/writes to the parent (AppShelf) via postMessage
+  const existingData = localStorage.getItem(K) || '{}';
   const proxy = `<scr`+`ipt>(function(){
-    var K='${K}',_s={};
-    try{_s=JSON.parse(localStorage.getItem(K)||'{}');}catch(e){}
+    var _s={};
+    try{_s=JSON.parse('${existingData.replace(/\/g,'\\').replace(/'/g,"\'").replace(/\n/g,'\\n')}');}catch(e){}
     var P={
       getItem:function(k){return Object.prototype.hasOwnProperty.call(_s,k)?_s[k]:null;},
-      setItem:function(k,v){_s[k]=String(v);try{localStorage.setItem(K,JSON.stringify(_s));}catch(e){}},
-      removeItem:function(k){delete _s[k];try{localStorage.setItem(K,JSON.stringify(_s));}catch(e){}},
-      clear:function(){_s={};try{localStorage.setItem(K,JSON.stringify(_s));}catch(e){}},
+      setItem:function(k,v){
+        _s[k]=String(v);
+        window.parent.postMessage({type:'as_storage',action:'set',key:'${K}',value:JSON.stringify(_s)},'*');
+      },
+      removeItem:function(k){
+        delete _s[k];
+        window.parent.postMessage({type:'as_storage',action:'set',key:'${K}',value:JSON.stringify(_s)},'*');
+      },
+      clear:function(){
+        _s={};
+        window.parent.postMessage({type:'as_storage',action:'set',key:'${K}',value:JSON.stringify(_s)},'*');
+      },
       key:function(i){return Object.keys(_s)[i]||null;},
       get length(){return Object.keys(_s).length;}
     };
@@ -1573,6 +1584,16 @@ document.getElementById('disconnect-btn').onclick = () => {
   setSyncDot(''); refreshSyncSheet(); closeSheet('sync-sheet');
   toast('Disconnected');
 };
+
+// ─────────────────────────────────────────
+// STORAGE RELAY (receives postMessage from iframe apps)
+// ─────────────────────────────────────────
+window.addEventListener('message', e => {
+  if (!e.data || e.data.type !== 'as_storage') return;
+  if (e.data.action === 'set') {
+    try { localStorage.setItem(e.data.key, e.data.value); } catch(err) {}
+  }
+});
 
 // ─────────────────────────────────────────
 // INIT
