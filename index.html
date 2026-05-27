@@ -726,11 +726,32 @@ function loadAll() {
   try { items = JSON.parse(localStorage.getItem('as_items') || '[]'); } catch(e) { items = []; }
   try { wallpaper = localStorage.getItem('as_wp') || 'default'; } catch(e) {}
   try { syncCfg = JSON.parse(localStorage.getItem('as_sync') || 'null'); } catch(e) { syncCfg = null; }
+  restoreImages();
 }
 
 function saveItems() {
-  localStorage.setItem('as_items', JSON.stringify(items));
+  const stripped = items.map(item => {
+    if (item.type !== 'app') return item;
+    const i = {...item};
+    if (i.icon && i.icon.type === 'image' && i.icon.value && i.icon.value.length > 100) {
+      localStorage.setItem('as_img_' + i.id, i.icon.value);
+      i.icon = {type:'image', ref: i.id};
+    }
+    return i;
+  });
+  localStorage.setItem('as_items', JSON.stringify(stripped));
   scheduleSyncUp();
+}
+
+function restoreImages() {
+  items = items.map(item => {
+    if (item.type !== 'app') return item;
+    if (item.icon && item.icon.type === 'image' && item.icon.ref) {
+      const data = localStorage.getItem('as_img_' + item.id);
+      if (data) item.icon = {type:'image', value: data};
+    }
+    return item;
+  });
 }
 
 function getAppData(id)      { try { return JSON.parse(localStorage.getItem('as_d_'+id)||'{}'); } catch(e){return{};} }
@@ -872,7 +893,7 @@ function confirmDelete(id) {
     ? `Delete folder "${item.name}"?\n\nApps inside will return to your home screen.`
     : `Delete "${item.name}"?\n\nThis will also erase its saved data.`;
   if (!confirm(msg)) return;
-  if (item.type==='app') removeAppData(id);
+  if (item.type==='app') { removeAppData(id); localStorage.removeItem('as_img_'+id); }
   items = items.filter(i=>i.id!==id);
   saveItems(); renderGrid();
   const vis = visibleItems();
@@ -1185,10 +1206,9 @@ if(typeof App!=='undefined'){ReactDOM.createRoot(document.getElementById('root')
   // inject proxy right after <head> tag
   const injected = html.replace(/<head([^>]*)>/i, (m) => m + proxy);
 
-  const blob = new Blob([injected], {type:'text/html'});
-  const url = URL.createObjectURL(blob);
-  frame.src = url;
-  frame.onload = () => URL.revokeObjectURL(url);
+  // Use srcdoc instead of blob URL so fetch/API calls aren't blocked by blob: origin
+  frame.removeAttribute('src');
+  frame.srcdoc = injected;
 }
 
 // ─────────────────────────────────────────
@@ -1456,7 +1476,7 @@ async function syncDown() {
     });
     if (!res.ok) throw new Error('HTTP '+res.status);
     const data = await res.json();
-    if (Array.isArray(data.items)) { items = data.items; localStorage.setItem('as_items', JSON.stringify(items)); }
+    if (Array.isArray(data.items)) { items = data.items; localStorage.setItem('as_items', JSON.stringify(items)); restoreImages(); }
     if (data.wallpaper) applyWallpaper(data.wallpaper);
     if (data.appData) Object.entries(data.appData).forEach(([id,v])=>localStorage.setItem('as_d_'+id,v));
     renderGrid();
