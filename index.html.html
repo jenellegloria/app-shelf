@@ -1,0 +1,1283 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="AppShelf">
+<title>AppShelf</title>
+<link href="https://fonts.googleapis.com/css2?family=SF+Pro+Display:wght@400;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --safe-top: env(safe-area-inset-top, 44px);
+  --safe-bottom: env(safe-area-inset-bottom, 20px);
+  --icon-size: 72px;
+  --icon-radius: 16px;
+  --label-size: 11px;
+  --col: 4;
+  --gap: 28px;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  height: 100%; width: 100%; overflow: hidden;
+  font-family: -apple-system, 'SF Pro Display', BlinkMacSystemFont, sans-serif;
+  -webkit-font-smoothing: antialiased;
+  background: #000;
+  user-select: none; -webkit-user-select: none;
+}
+
+/* ── WALLPAPER ── */
+#wallpaper {
+  position: fixed; inset: 0; z-index: 0;
+  background: linear-gradient(160deg, #1a1a3e 0%, #0d0d1a 40%, #1a0d2e 70%, #0a1628 100%);
+  transition: background 0.5s;
+}
+#wallpaper.w-sunset  { background: linear-gradient(160deg,#ff6b35 0%,#f7931e 30%,#c62a88 60%,#6a0572 100%); }
+#wallpaper.w-forest  { background: linear-gradient(160deg,#134e5e 0%,#1a6b3a 40%,#0d3b1e 100%); }
+#wallpaper.w-ocean   { background: linear-gradient(160deg,#005c97 0%,#363795 40%,#0a0a2e 100%); }
+#wallpaper.w-rose    { background: linear-gradient(160deg,#f953c6 0%,#b91d73 40%,#1a0010 100%); }
+#wallpaper.w-ember   { background: linear-gradient(160deg,#f12711 0%,#f5af19 40%,#1a0800 100%); }
+#wallpaper.w-light   { background: linear-gradient(160deg,#d4e8ff 0%,#b8d4f8 40%,#e8d4f8 100%); }
+
+/* ── SCREENS ── */
+.screen {
+  position: fixed; inset: 0; z-index: 1;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.22s ease, transform 0.28s cubic-bezier(.4,0,.2,1);
+  transform: scale(1.04);
+}
+.screen.active { opacity: 1; pointer-events: all; transform: scale(1); }
+.screen.slide-in { transform: translateX(100%); opacity: 1; }
+.screen.slide-in.active { transform: translateX(0); }
+
+/* ── HOME SCREEN ── */
+#home { overflow: hidden; }
+
+.home-grid-wrap {
+  position: absolute; inset: 0;
+  padding: calc(var(--safe-top) + 20px) 20px calc(var(--safe-bottom) + 100px);
+  overflow-y: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+}
+.home-grid-wrap::-webkit-scrollbar { display: none; }
+
+.icon-grid {
+  display: grid;
+  grid-template-columns: repeat(var(--col), 1fr);
+  gap: var(--gap) 8px;
+  align-items: start;
+}
+
+/* ── ICON CELL ── */
+.icon-cell {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  position: relative; touch-action: none;
+  cursor: pointer;
+}
+
+.icon-img {
+  width: var(--icon-size); height: var(--icon-size);
+  border-radius: var(--icon-radius);
+  overflow: hidden; position: relative;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 32px;
+  flex-shrink: 0;
+  transition: transform 0.12s ease;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.35);
+}
+.icon-img img { width: 100%; height: 100%; object-fit: cover; }
+.icon-cell:active:not(.jiggle) .icon-img { transform: scale(0.91); }
+
+.icon-label {
+  font-size: var(--label-size);
+  color: #fff;
+  text-align: center;
+  line-height: 1.2;
+  max-width: 72px;
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-clamp: 2;
+  -webkit-box-orient: vertical;
+  word-break: break-word;
+  text-shadow: 0 1px 3px rgba(0,0,0,0.7);
+}
+body.wallpaper-light .icon-label { color: #111; text-shadow: 0 1px 2px rgba(255,255,255,0.5); }
+
+/* jiggle */
+@keyframes jiggle {
+  0%,100% { transform: rotate(-1.8deg) translateY(0); }
+  50%      { transform: rotate(1.8deg) translateY(-1px); }
+}
+.icon-cell.jiggle .icon-img { animation: jiggle 0.22s ease-in-out infinite; }
+.icon-cell.dragging .icon-img { opacity: 0.3; animation: none !important; }
+.icon-cell.folder-hover .icon-img { transform: scale(1.12); box-shadow: 0 0 0 3px rgba(255,255,255,0.6), 0 4px 20px rgba(0,0,0,0.5); }
+
+/* delete badge */
+.del-badge {
+  position: absolute; top: -5px; left: -5px;
+  width: 20px; height: 20px; border-radius: 50%;
+  background: #ff3b30; color: #fff; font-size: 13px; font-weight: 700;
+  display: none; align-items: center; justify-content: center;
+  z-index: 10; box-shadow: 0 1px 4px rgba(0,0,0,0.4); line-height: 1;
+}
+.icon-cell.jiggle .del-badge { display: flex; }
+
+/* ── FOLDER ── */
+.folder-icon {
+  width: var(--icon-size); height: var(--icon-size);
+  border-radius: var(--icon-radius);
+  background: rgba(120,120,160,0.45);
+  backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+  display: grid; grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 4px; padding: 8px;
+  box-shadow: 0 2px 12px rgba(0,0,0,0.35);
+  position: relative;
+}
+.folder-mini {
+  border-radius: 5px; overflow: hidden;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 13px; background: rgba(255,255,255,0.12);
+}
+.folder-mini img { width: 100%; height: 100%; object-fit: cover; }
+
+/* ── DONE BUTTON ── */
+.done-pill {
+  position: fixed; top: calc(var(--safe-top) + 8px); right: 16px;
+  background: rgba(255,255,255,0.22); backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  color: #fff; border: none; border-radius: 20px;
+  padding: 7px 18px; font-size: 14px; font-weight: 600;
+  cursor: pointer; z-index: 50; display: none;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+}
+.done-pill.visible { display: block; }
+.done-pill:active { opacity: 0.7; }
+
+/* ── ADD FAB (small, bottom right) ── */
+.fab {
+  position: fixed; bottom: calc(var(--safe-bottom) + 28px); right: 22px;
+  width: 50px; height: 50px; border-radius: 50%;
+  background: rgba(255,255,255,0.2); backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1.5px solid rgba(255,255,255,0.35);
+  color: #fff; font-size: 24px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  z-index: 40; box-shadow: 0 2px 12px rgba(0,0,0,0.3);
+  transition: transform 0.15s ease;
+}
+.fab:active { transform: scale(0.92); }
+
+/* ── RUNNER ── */
+#runner { background: #fff; z-index: 300; }
+#runner.slide-in { transform: translateX(100%); opacity: 1; }
+#runner.slide-in.active { transform: translateX(0); }
+.runner-bar {
+  display: flex; align-items: center;
+  padding: calc(var(--safe-top) + 8px) 14px 8px;
+  background: rgba(10,10,20,0.95); backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  gap: 10px; flex-shrink: 0; border-bottom: 1px solid rgba(255,255,255,0.08);
+}
+.back-btn {
+  background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 10px; color: #fff; padding: 6px 13px;
+  font-size: 13px; cursor: pointer; flex-shrink: 0;
+}
+.back-btn:active { opacity: 0.7; }
+.runner-title { flex: 1; font-size: 14px; font-weight: 600; color: #fff; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.edit-btn-sm {
+  background: rgba(255,255,255,0.1); border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 10px; color: #7c6aff; padding: 6px 12px;
+  font-size: 12px; cursor: pointer; flex-shrink: 0;
+}
+.edit-btn-sm:active { opacity: 0.7; }
+#runner-iframe { flex: 1; border: none; width: 100%; background: #fff; }
+
+/* ── FOLDER OVERLAY ── */
+#folder-overlay {
+  position: fixed; inset: 0; z-index: 200;
+  display: flex; align-items: center; justify-content: center;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.2s ease;
+}
+#folder-overlay.open { opacity: 1; pointer-events: all; }
+.folder-backdrop {
+  position: absolute; inset: 0;
+  background: rgba(0,0,0,0.55); backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+}
+.folder-panel {
+  position: relative; z-index: 1;
+  width: calc(100vw - 40px); max-width: 340px;
+  background: rgba(50,50,80,0.75);
+  backdrop-filter: blur(20px); -webkit-backdrop-filter: blur(20px);
+  border-radius: 22px; overflow: hidden;
+  transform: scale(0.9);
+  transition: transform 0.2s cubic-bezier(.4,0,.2,1);
+  box-shadow: 0 20px 60px rgba(0,0,0,0.5);
+}
+#folder-overlay.open .folder-panel { transform: scale(1); }
+.folder-name-row {
+  padding: 16px 20px 8px; text-align: center;
+}
+.folder-name-input {
+  background: transparent; border: none; outline: none;
+  font-size: 16px; font-weight: 600; color: #fff;
+  text-align: center; width: 100%;
+}
+.folder-name-input::placeholder { color: rgba(255,255,255,0.4); }
+.folder-apps-grid {
+  display: grid; grid-template-columns: repeat(3,1fr);
+  gap: 16px; padding: 10px 20px 20px;
+}
+.folder-app-cell {
+  display: flex; flex-direction: column; align-items: center; gap: 5px;
+  cursor: pointer;
+}
+.folder-app-cell .icon-img {
+  width: 56px; height: 56px; border-radius: 13px;
+}
+.folder-app-cell .icon-label { font-size: 10px; color: #fff; max-width: 60px; text-shadow: 0 1px 2px rgba(0,0,0,0.5); }
+.folder-close {
+  display: block; width: calc(100% - 40px); margin: 0 20px 20px;
+  padding: 12px; background: rgba(255,255,255,0.15); border: none;
+  border-radius: 14px; color: #fff; font-size: 15px; font-weight: 600;
+  cursor: pointer;
+}
+.folder-close:active { opacity: 0.7; }
+
+/* ── SHEETS ── */
+.overlay-sheet { position: fixed; inset: 0; z-index: 400; pointer-events: none; }
+.overlay-sheet.open { pointer-events: all; }
+.sheet-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.6); backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px); opacity: 0; transition: opacity 0.3s; }
+.overlay-sheet.open .sheet-backdrop { opacity: 1; }
+.sheet-panel {
+  position: absolute; bottom: 0; left: 0; right: 0;
+  background: #1c1c28; border-radius: 24px 24px 0 0;
+  padding: 0 20px calc(var(--safe-bottom) + 20px);
+  transform: translateY(100%); transition: transform 0.32s cubic-bezier(.4,0,.2,1);
+  max-height: 92vh; display: flex; flex-direction: column;
+}
+.overlay-sheet.open .sheet-panel { transform: translateY(0); }
+.sheet-handle { width: 36px; height: 4px; background: #444; border-radius: 2px; margin: 14px auto 20px; flex-shrink: 0; }
+.sheet-title { font-size: 18px; font-weight: 700; color: #fff; margin-bottom: 20px; flex-shrink: 0; }
+.sheet-scroll { overflow-y: auto; -webkit-overflow-scrolling: touch; flex: 1; }
+label { display: block; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: #666; margin-bottom: 8px; }
+input[type="text"] { width: 100%; background: #2a2a3a; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 12px 14px; color: #fff; font-size: 14px; outline: none; -webkit-appearance: none; transition: border-color 0.2s; }
+input[type="text"]:focus { border-color: #7c6aff; }
+textarea { width: 100%; background: #2a2a3a; border: 1px solid rgba(255,255,255,0.08); border-radius: 12px; padding: 12px 14px; color: #fff; font-size: 12px; line-height: 1.6; outline: none; -webkit-appearance: none; resize: none; transition: border-color 0.2s; }
+textarea:focus { border-color: #7c6aff; }
+.field-group { margin-bottom: 18px; flex-shrink: 0; }
+.btn-primary { width: 100%; padding: 15px; background: linear-gradient(135deg,#7c6aff,#ff6a9b); border: none; border-radius: 14px; color: #fff; font-size: 15px; font-weight: 700; cursor: pointer; margin-top: 14px; flex-shrink: 0; }
+.btn-primary:active { opacity: 0.88; }
+.hint { font-size: 11px; color: #555; margin-top: 6px; line-height: 1.5; }
+
+/* ── ICON PICKER ── */
+.icon-picker-row { display: flex; gap: 12px; align-items: center; margin-bottom: 18px; }
+.icon-preview {
+  width: 60px; height: 60px; border-radius: 14px; flex-shrink: 0;
+  background: #2a2a3a; border: 1.5px dashed #444;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 28px; overflow: hidden; cursor: pointer;
+  transition: border-color 0.15s;
+}
+.icon-preview img { width: 100%; height: 100%; object-fit: cover; }
+.icon-preview:hover { border-color: #7c6aff; }
+.icon-options { display: flex; flex-direction: column; gap: 8px; flex: 1; }
+.icon-opt-btn {
+  background: #2a2a3a; border: 1px solid rgba(255,255,255,0.1);
+  border-radius: 10px; color: #ccc; padding: 9px 14px;
+  font-size: 12px; cursor: pointer; text-align: left;
+  display: flex; align-items: center; gap: 8px;
+}
+.icon-opt-btn:active { background: #333; }
+
+.emoji-picker { display: flex; flex-wrap: wrap; gap: 6px; }
+.emoji-btn { width: 38px; height: 38px; border-radius: 9px; background: #2a2a3a; border: 1px solid rgba(255,255,255,0.08); font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; }
+.emoji-btn.sel { border-color: #7c6aff; background: rgba(124,106,255,0.2); }
+.emoji-btn:active { transform: scale(0.9); }
+
+/* ── WALLPAPER PICKER ── */
+.wallpaper-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 10px; margin-bottom: 10px; }
+.wp-swatch {
+  height: 80px; border-radius: 14px; cursor: pointer;
+  border: 2px solid transparent; position: relative;
+  transition: border-color 0.15s, transform 0.15s;
+}
+.wp-swatch:active { transform: scale(0.95); }
+.wp-swatch.active { border-color: #fff; }
+.wp-swatch span { position: absolute; bottom: 6px; left: 0; right: 0; text-align: center; font-size: 10px; color: rgba(255,255,255,0.85); font-weight: 600; text-shadow: 0 1px 3px rgba(0,0,0,0.7); }
+
+/* ── EDIT APP SCREEN ── */
+#edit-screen { background: #0d0d1a; z-index: 500; }
+.edit-topbar { padding: calc(var(--safe-top) + 12px) 16px 12px; display: flex; align-items: center; gap: 10px; flex-shrink: 0; border-bottom: 1px solid rgba(255,255,255,0.06); }
+.edit-topbar-title { flex: 1; font-size: 16px; font-weight: 700; color: #fff; }
+
+/* ── TOAST ── */
+.toast { position: fixed; bottom: calc(var(--safe-bottom) + 90px); left: 50%; transform: translateX(-50%) translateY(20px); background: rgba(40,40,60,0.95); backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.1); padding: 9px 18px; border-radius: 100px; font-size: 12px; color: rgba(255,255,255,0.8); opacity: 0; transition: all 0.28s ease; pointer-events: none; white-space: nowrap; z-index: 1000; }
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* ── SYNC ── */
+.sync-bar {
+  position: fixed; top: calc(var(--safe-top) + 8px); left: 16px;
+  display: flex; align-items: center; gap: 7px;
+  background: rgba(255,255,255,0.12); backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 20px; padding: 5px 12px 5px 8px;
+  font-size: 11px; color: rgba(255,255,255,0.8);
+  z-index: 50; cursor: pointer;
+  transition: opacity 0.2s;
+  max-width: 160px;
+}
+.sync-bar:active { opacity: 0.7; }
+.sync-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  background: #888; transition: background 0.3s;
+}
+.sync-dot.synced  { background: #34c759; }
+.sync-dot.syncing { background: #ff9500; animation: pulse 1s infinite; }
+.sync-dot.error   { background: #ff3b30; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+/* Sync setup sheet additions */
+.passphrase-display {
+  background: #2a2a3a; border-radius: 12px; padding: 14px;
+  font-size: 13px; color: #aaa; margin-bottom: 8px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.passphrase-display span { color: #fff; font-weight: 600; letter-spacing: 0.05em; }
+.disconnect-btn {
+  background: rgba(255,59,48,0.15); border: 1px solid rgba(255,59,48,0.3);
+  border-radius: 10px; color: #ff6a6a; padding: 8px 14px;
+  font-size: 12px; cursor: pointer; width: 100%; margin-top: 8px;
+}
+.disconnect-btn:active { opacity: 0.7; }
+</style>
+</head>
+<body>
+
+<div id="wallpaper"></div>
+
+<!-- HOME -->
+<div id="home" class="screen active">
+  <div class="home-grid-wrap">
+    <div id="icon-grid" class="icon-grid"></div>
+  </div>
+  <button class="done-pill" id="done-btn">Done</button>
+  <button class="fab" id="add-fab" title="Add app">＋</button>
+</div>
+
+<!-- RUNNER -->
+<div id="runner" class="screen slide-in">
+  <div class="runner-bar">
+    <button class="back-btn" id="back-btn">← Back</button>
+    <span class="runner-title" id="runner-title"></span>
+    <button class="edit-btn-sm" id="runner-edit-btn">Edit</button>
+  </div>
+  <iframe id="runner-iframe" sandbox="allow-scripts allow-forms allow-same-origin allow-modals"></iframe>
+</div>
+
+<!-- EDIT APP SCREEN -->
+<div id="edit-screen" class="screen slide-in">
+  <div class="edit-topbar">
+    <button class="back-btn" id="edit-cancel-btn">← Cancel</button>
+    <span class="edit-topbar-title">Edit App</span>
+    <button class="edit-btn-sm" id="save-edit-top" style="color:#6affd4;">Save</button>
+  </div>
+  <div style="padding:20px;flex:1;overflow-y:auto;display:flex;flex-direction:column;gap:4px;">
+    <div class="field-group">
+      <label>App Name</label>
+      <input type="text" id="edit-name" autocomplete="off">
+    </div>
+    <div class="field-group">
+      <label>Icon</label>
+      <div class="icon-picker-row">
+        <div class="icon-preview" id="edit-icon-preview">📱</div>
+        <div class="icon-options">
+          <button class="icon-opt-btn" id="edit-upload-btn">📁 Upload image</button>
+          <button class="icon-opt-btn" id="edit-emoji-toggle">😀 Choose emoji</button>
+        </div>
+      </div>
+      <div id="edit-emoji-tray" style="display:none;">
+        <div class="emoji-picker" id="edit-emoji-picker"></div>
+      </div>
+      <input type="file" id="edit-file-input" accept="image/*" style="display:none;">
+    </div>
+    <div class="field-group" style="flex:1;display:flex;flex-direction:column;">
+      <label>Code</label>
+      <textarea id="edit-code" style="min-height:260px;max-height:none;"></textarea>
+      <div class="hint" style="margin-top:6px;">⚡ Editing code preserves your app's stored data</div>
+    </div>
+    <div style="padding-bottom:calc(var(--safe-bottom)+16px);">
+      <button class="btn-primary" id="save-edit-btn">Save & Reload App</button>
+    </div>
+  </div>
+</div>
+
+<!-- ADD APP SHEET -->
+<div id="add-sheet" class="overlay-sheet">
+  <div class="sheet-backdrop" id="add-backdrop"></div>
+  <div class="sheet-panel">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Add App</div>
+    <div class="sheet-scroll">
+      <div class="field-group">
+        <label>App Name</label>
+        <input type="text" id="app-name" placeholder="My Tracker" autocomplete="off">
+      </div>
+      <div class="field-group">
+        <label>Icon</label>
+        <div class="icon-picker-row">
+          <div class="icon-preview" id="add-icon-preview">📱</div>
+          <div class="icon-options">
+            <button class="icon-opt-btn" id="add-upload-btn">📁 Upload image</button>
+            <button class="icon-opt-btn" id="add-emoji-toggle">😀 Choose emoji</button>
+          </div>
+        </div>
+        <div id="add-emoji-tray" style="display:none;">
+          <div class="emoji-picker" id="add-emoji-picker"></div>
+        </div>
+        <input type="file" id="add-file-input" accept="image/*" style="display:none;">
+      </div>
+      <div class="field-group">
+        <label>Paste Your Code</label>
+        <textarea id="app-code" style="min-height:160px;" placeholder="Paste your HTML or JSX code here..."></textarea>
+        <div class="hint">⚡ Each app gets isolated storage — edits never erase your data</div>
+      </div>
+    </div>
+    <button class="btn-primary" id="save-app-btn">Save & Open</button>
+  </div>
+</div>
+
+<!-- SETTINGS SHEET -->
+<div id="settings-sheet" class="overlay-sheet">
+  <div class="sheet-backdrop" id="settings-backdrop"></div>
+  <div class="sheet-panel">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">Settings</div>
+    <div class="sheet-scroll">
+      <div class="field-group">
+        <label>Wallpaper</label>
+        <div class="wallpaper-grid" id="wallpaper-grid"></div>
+      </div>
+      <div class="field-group" style="padding-top:4px;border-top:1px solid #2a2a3a;margin-top:8px;">
+        <label>Cloud Sync</label>
+        <button class="icon-opt-btn" id="open-sync-btn" style="width:100%;justify-content:space-between;">
+          <span>☁️ &nbsp;Sync settings</span>
+          <span id="settings-sync-status" style="font-size:10px;color:#666;">Not connected</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- FOLDER OVERLAY -->
+<div id="folder-overlay">
+  <div class="folder-backdrop" id="folder-backdrop"></div>
+  <div class="folder-panel">
+    <div class="folder-name-row">
+      <input type="text" class="folder-name-input" id="folder-name-input" placeholder="Folder Name">
+    </div>
+    <div class="folder-apps-grid" id="folder-apps-grid"></div>
+    <button class="folder-close" id="folder-close-btn">Close</button>
+  </div>
+</div>
+
+
+<!-- SYNC BAR -->
+<div class="sync-bar" id="sync-bar" style="display:none;">
+  <div class="sync-dot" id="sync-dot"></div>
+  <span id="sync-label">Synced</span>
+</div>
+
+<!-- SYNC SETUP SHEET -->
+<div id="sync-sheet" class="overlay-sheet">
+  <div class="sheet-backdrop" id="sync-backdrop"></div>
+  <div class="sheet-panel">
+    <div class="sheet-handle"></div>
+    <div class="sheet-title">☁️ Cloud Sync</div>
+    <div class="sheet-scroll">
+      <div id="sync-connected-view" style="display:none;">
+        <div class="passphrase-display">
+          Passphrase: <span id="connected-phrase">••••••••</span>
+        </div>
+        <p style="font-size:12px;color:#666;margin-bottom:16px;line-height:1.6;">Your apps and data sync automatically. Use the same passphrase on any device to access your apps.</p>
+        <button class="btn-primary" id="sync-now-btn">↻ Sync Now</button>
+        <button class="disconnect-btn" id="disconnect-btn">Disconnect Sync</button>
+      </div>
+      <div id="sync-setup-view">
+        <div class="field-group">
+          <label>Worker URL</label>
+          <input type="text" id="worker-url-input" placeholder="https://appshelf-sync.yourname.workers.dev" autocomplete="off" autocapitalize="off">
+          <div class="hint" style="margin-top:6px;">Your Cloudflare Worker URL. See setup guide below.</div>
+        </div>
+        <div class="field-group">
+          <label>Passphrase</label>
+          <input type="text" id="passphrase-input" placeholder="choose something memorable" autocomplete="off" autocapitalize="off">
+          <div class="hint" style="margin-top:6px;">At least 4 characters. Same passphrase = same data across devices. Don't lose it.</div>
+        </div>
+        <button class="btn-primary" id="connect-sync-btn">Connect & Sync</button>
+        <div style="margin-top:24px;padding-top:20px;border-top:1px solid #2a2a3a;">
+          <div style="font-size:12px;font-weight:700;color:#888;margin-bottom:12px;letter-spacing:0.06em;text-transform:uppercase;">Setup Guide</div>
+          <div style="font-size:12px;color:#666;line-height:1.8;">
+            1. Create a free <a href="https://cloudflare.com" style="color:#7c6aff;">Cloudflare</a> account<br>
+            2. Go to Workers & Pages → Create Worker<br>
+            3. Paste the <strong style="color:#aaa;">appshelf-worker.js</strong> code<br>
+            4. Go to KV → Create namespace → name it <strong style="color:#aaa;">APPSHELF_KV</strong><br>
+            5. In your Worker settings → Variables → KV Bindings → add <strong style="color:#aaa;">APPSHELF_KV</strong><br>
+            6. Copy your Worker URL and paste it above
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const EMOJIS = ['📊','📅','✅','💪','📝','🎯','⏱','💡','🌱','📚','🎵','💰','🏃','🧘','💊','🍎','😴','💧','🔥','⭐','🎮','🗓','📈','🔖','🧠','🏋️','🎨','🛒','🔔','🌟','🌙','☀️','🍕','🐶','🐱','🦋','🎸','✈️','🏠','💎'];
+const COLORS = ['#5856d6','#ff2d55','#34c759','#ff9500','#007aff','#af52de','#ff6b35','#30b0c7'];
+
+const WALLPAPERS = [
+  {id:'default', name:'Night',   cls:'',        style:'background:linear-gradient(160deg,#1a1a3e,#0d0d1a,#1a0d2e,#0a1628)'},
+  {id:'sunset',  name:'Sunset',  cls:'w-sunset', style:'background:linear-gradient(160deg,#ff6b35,#f7931e,#c62a88,#6a0572)'},
+  {id:'forest',  name:'Forest',  cls:'w-forest', style:'background:linear-gradient(160deg,#134e5e,#1a6b3a,#0d3b1e)'},
+  {id:'ocean',   name:'Ocean',   cls:'w-ocean',  style:'background:linear-gradient(160deg,#005c97,#363795,#0a0a2e)'},
+  {id:'rose',    name:'Rose',    cls:'w-rose',   style:'background:linear-gradient(160deg,#f953c6,#b91d73,#1a0010)'},
+  {id:'ember',   name:'Ember',   cls:'w-ember',  style:'background:linear-gradient(160deg,#f12711,#f5af19,#1a0800)'},
+  {id:'light',   name:'Light',   cls:'w-light',  style:'background:linear-gradient(160deg,#d4e8ff,#b8d4f8,#e8d4f8)'},
+];
+
+// ── STATE ──
+let items = []; // {type:'app'|'folder', id, ...}
+let editMode = false;
+let activeAppId = null;
+let openFolderId = null;
+let currentWallpaper = 'default';
+
+// icon state for add/edit forms
+let addIconData = {type:'emoji', value:'📱'};
+let editIconData = {type:'emoji', value:'📱'};
+
+// drag state
+let dragId = null;
+let dragIsFolder = false;
+let touchClone = null;
+let touchOffX = 0, touchOffY = 0;
+let longPressTimer = null;
+
+// ── LOAD / SAVE ──
+function load() {
+  try { items = JSON.parse(localStorage.getItem('appshelf_items')||'[]'); } catch(e){items=[];}
+  currentWallpaper = localStorage.getItem('appshelf_wp')||'default';
+}
+function save() { localStorage.setItem('appshelf_items', JSON.stringify(items)); }
+
+function genId() { return 'i'+Date.now()+Math.random().toString(36).slice(2,6); }
+function escH(s){ return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+function showToast(m){ const t=document.getElementById('toast'); t.textContent=m; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2200); }
+
+// ── WALLPAPER ──
+function applyWallpaper(id, saveit=true) {
+  const wp = WALLPAPERS.find(w=>w.id===id)||WALLPAPERS[0];
+  const el = document.getElementById('wallpaper');
+  WALLPAPERS.forEach(w=>el.classList.remove(w.cls));
+  if (wp.cls) el.classList.add(wp.cls);
+  else el.className = '';
+  el.style.cssText = '';
+  // apply via class (defined in CSS)
+  currentWallpaper = id;
+  document.body.classList.toggle('wallpaper-light', id==='light');
+  if (saveit) localStorage.setItem('appshelf_wp', id);
+}
+
+function renderWallpaperGrid() {
+  const g = document.getElementById('wallpaper-grid'); g.innerHTML='';
+  WALLPAPERS.forEach(wp=>{
+    const d=document.createElement('div');
+    d.className='wp-swatch'+(wp.id===currentWallpaper?' active':'');
+    d.setAttribute('style', wp.style);
+    d.innerHTML=`<span>${wp.name}</span>`;
+    d.onclick=()=>{ applyWallpaper(wp.id); renderWallpaperGrid(); };
+    g.appendChild(d);
+  });
+}
+
+// ── ICON RENDERING ──
+function renderIconContent(iconData, size=72) {
+  if (!iconData) return `<span style="font-size:${size*0.45}px">📱</span>`;
+  if (iconData.type==='image') return `<img src="${iconData.value}" alt="">`;
+  return `<span style="font-size:${size*0.45}px">${iconData.value||'📱'}</span>`;
+}
+
+function iconBg(iconData, color) {
+  if (iconData && iconData.type==='image') return 'background:#000;';
+  return `background:${color||'#5856d6'};`;
+}
+
+// ── RENDER GRID ──
+function getFolderAppIds() {
+  const ids = new Set();
+  items.filter(i=>i.type==='folder').forEach(f=>(f.appIds||[]).forEach(id=>ids.add(id)));
+  return ids;
+}
+
+function renderGrid() {
+  const grid = document.getElementById('icon-grid'); grid.innerHTML='';
+  const inFolder = getFolderAppIds();
+  const visible = items.filter(i=> i.type==='folder' || !inFolder.has(i.id));
+  if (visible.length===0) {
+    grid.innerHTML='<div style="grid-column:1/-1;padding:40px 0;text-align:center;color:rgba(255,255,255,0.3);font-size:13px;">Tap + to add your first app</div>';
+    return;
+  }
+  visible.forEach(item=>{
+    const cell = item.type==='folder' ? makeFolderCell(item) : makeAppCell(item);
+    if (editMode) cell.classList.add('jiggle');
+    grid.appendChild(cell);
+  });
+}
+
+function makeAppCell(app) {
+  const cell = document.createElement('div');
+  cell.className = 'icon-cell';
+  cell.dataset.id = app.id;
+  cell.dataset.type = 'app';
+
+  const imgDiv = document.createElement('div');
+  imgDiv.className = 'icon-img';
+  imgDiv.style.cssText = iconBg(app.iconData, app.color);
+  imgDiv.innerHTML = renderIconContent(app.iconData);
+
+  const delBadge = document.createElement('div');
+  delBadge.className = 'del-badge'; delBadge.textContent = '✕';
+  imgDiv.appendChild(delBadge);
+
+  const label = document.createElement('div');
+  label.className = 'icon-label'; label.textContent = app.name;
+
+  cell.appendChild(imgDiv); cell.appendChild(label);
+  setupCellInteraction(cell, app.id, 'app');
+  delBadge.addEventListener('pointerdown', e=>{ e.stopPropagation(); deleteItem(app.id); });
+  return cell;
+}
+
+function makeFolderCell(folder) {
+  const cell = document.createElement('div');
+  cell.className = 'icon-cell';
+  cell.dataset.id = folder.id;
+  cell.dataset.type = 'folder';
+
+  const folderDiv = document.createElement('div');
+  folderDiv.className = 'folder-icon';
+
+  const delBadge = document.createElement('div');
+  delBadge.className = 'del-badge'; delBadge.textContent = '✕';
+  folderDiv.appendChild(delBadge);
+
+  // show up to 4 mini icons
+  const preview = (folder.appIds||[]).slice(0,4);
+  while(preview.length<4) preview.push(null);
+  preview.forEach(aid=>{
+    const mini = document.createElement('div');
+    mini.className = 'folder-mini';
+    const app = aid ? items.find(i=>i.id===aid) : null;
+    if (app && app.iconData) {
+      if (app.iconData.type==='image') {
+        mini.innerHTML=`<img src="${app.iconData.value}" alt="">`;
+        mini.style.background='#000';
+      } else {
+        mini.textContent = app.iconData.value||'📱';
+        mini.style.background = app.color||'#5856d6';
+        mini.style.fontSize='11px';
+      }
+    }
+    folderDiv.appendChild(mini);
+  });
+
+  const label = document.createElement('div');
+  label.className = 'icon-label'; label.textContent = folder.name||'Folder';
+
+  cell.appendChild(folderDiv); cell.appendChild(label);
+  setupCellInteraction(cell, folder.id, 'folder');
+  delBadge.addEventListener('pointerdown', e=>{ e.stopPropagation(); deleteItem(folder.id); });
+  return cell;
+}
+
+function deleteItem(id) {
+  const item = items.find(i=>i.id===id);
+  const msg = item?.type==='folder'
+    ? `Delete folder "${item.name}"? The apps inside will move back to your home screen.`
+    : `Delete "${item?.name||'this app'}"?`;
+  if (!confirm(msg)) return;
+  if (item.type==='app') localStorage.removeItem('appshelf_data_'+id);
+  // for folders: apps stay in items, just remove the folder
+  items = items.filter(i=>i.id!==id);
+  save(); renderGrid();
+  const inFolder = getFolderAppIds();
+  const visibleCount = items.filter(i=> i.type==='folder' || !inFolder.has(i.id)).length;
+  if (visibleCount===0) exitEditMode();
+  showToast(item.type==='folder' ? 'Folder deleted, apps restored' : 'Deleted');
+}
+
+// ── CELL INTERACTION ──
+function setupCellInteraction(cell, id, type) {
+  let pendingDrag = null; // {touchEvent, cell, id} — drag staged but not started yet
+
+  cell.addEventListener('touchstart', e=>{
+    if (editMode) {
+      // Stage the drag but don't create the clone yet — wait to see if they actually move
+      pendingDrag = {touchEvent: e, cell, id};
+      return;
+    }
+    longPressTimer = setTimeout(()=>{ longPressTimer=null; enterEditMode(); pendingDrag={touchEvent:null,cell,id}; }, 550);
+  }, {passive:true});
+
+  cell.addEventListener('touchmove', e=>{
+    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer=null; }
+    // Commit the drag now that we know they're moving
+    if (pendingDrag && !touchClone) {
+      startDrag(pendingDrag.touchEvent, pendingDrag.cell, pendingDrag.id);
+      pendingDrag = null;
+    }
+    if (touchClone) handleDragMove(e);
+  }, {passive:false});
+
+  cell.addEventListener('touchend', e=>{
+    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer=null; }
+    pendingDrag = null;
+    if (touchClone) { endDrag(e); return; }
+    // It was a tap, not a drag
+    if (editMode) return; // tapping in edit mode does nothing (use del badge or Done)
+    if (type==='folder') openFolder(id);
+    else openApp(id);
+  });
+
+  cell.addEventListener('touchcancel', ()=>{
+    if (longPressTimer) { clearTimeout(longPressTimer); longPressTimer=null; }
+    pendingDrag = null;
+    if (touchClone) cancelDrag();
+  });
+}
+
+// ── DRAG ──
+function startDrag(touchEvent, cell, id) {
+  dragId = id;
+  cell.classList.add('dragging');
+  const rect = cell.getBoundingClientRect();
+  const clone = cell.cloneNode(true);
+  clone.classList.remove('dragging','jiggle');
+  clone.querySelectorAll('.del-badge').forEach(b=>b.style.display='none');
+  clone.style.cssText=`position:fixed;left:${rect.left}px;top:${rect.top}px;width:${rect.width}px;z-index:999;opacity:0.96;pointer-events:none;transition:none;transform:scale(1.1);filter:drop-shadow(0 8px 24px rgba(0,0,0,0.6));`;
+  document.body.appendChild(clone); touchClone=clone;
+  if (touchEvent) {
+    const t=touchEvent.touches[0];
+    touchOffX=t.clientX-rect.left; touchOffY=t.clientY-rect.top;
+  } else { touchOffX=rect.width/2; touchOffY=rect.height/2; }
+}
+
+function handleDragMove(e) {
+  e.preventDefault();
+  const t=e.touches[0];
+  touchClone.style.left=(t.clientX-touchOffX)+'px';
+  touchClone.style.top=(t.clientY-touchOffY)+'px';
+  touchClone.style.display='none';
+  const el=document.elementFromPoint(t.clientX,t.clientY);
+  touchClone.style.display='';
+  const targetCell=el&&el.closest('.icon-cell');
+  document.querySelectorAll('.icon-cell').forEach(c=>c.classList.remove('folder-hover','drag-over'));
+  if (targetCell && targetCell.dataset.id!==dragId) {
+    const tid=targetCell.dataset.id;
+    const titem=items.find(i=>i.id===tid);
+    // hovering over a folder or an app → show folder-hover
+    if (titem) targetCell.classList.add('folder-hover');
+  }
+}
+
+function endDrag(e) {
+  if (!touchClone) return;
+  touchClone.remove(); touchClone=null;
+  document.querySelectorAll('.icon-cell').forEach(c=>c.classList.remove('dragging','folder-hover','drag-over'));
+  const t=e.changedTouches[0];
+  const el=document.elementFromPoint(t.clientX,t.clientY);
+  const targetCell=el&&el.closest('.icon-cell');
+  if (targetCell && targetCell.dataset.id && targetCell.dataset.id!==dragId) {
+    const srcId=dragId, dstId=targetCell.dataset.id;
+    const src=items.find(i=>i.id===srcId);
+    const dst=items.find(i=>i.id===dstId);
+    if (src && dst) {
+      if (dst.type==='folder') {
+        // add to existing folder - app stays in items, folder just references it
+        if (src.type==='app') {
+          if (!dst.appIds.includes(srcId)) {
+            dst.appIds.push(srcId);
+            save(); renderGrid();
+            showToast(`Added to ${dst.name}`);
+          }
+        }
+      } else if (src.type==='app' && dst.type==='app') {
+        // create new folder - apps stay in items, folder just holds ID refs
+        const folder = { type:'folder', id:genId(), name:'New Folder', appIds:[dstId,srcId] };
+        const di=items.findIndex(i=>i.id===dstId);
+        items.splice(di,0,folder);
+        save(); renderGrid();
+        setTimeout(()=>openFolder(folder.id, true),200);
+      } else {
+        reorder(srcId,dstId);
+      }
+    }
+  }
+  dragId=null;
+}
+
+function cancelDrag() {
+  if (touchClone){touchClone.remove();touchClone=null;}
+  document.querySelectorAll('.icon-cell').forEach(c=>c.classList.remove('dragging','folder-hover'));
+  dragId=null;
+}
+
+function reorder(srcId, dstId) {
+  const si=items.findIndex(i=>i.id===srcId), di=items.findIndex(i=>i.id===dstId);
+  if(si<0||di<0) return;
+  const [item]=items.splice(si,1); items.splice(di,0,item);
+  save(); renderGrid();
+}
+
+// ── EDIT MODE ──
+function enterEditMode() {
+  editMode=true;
+  document.getElementById('done-btn').classList.add('visible');
+  document.querySelectorAll('.icon-cell').forEach(c=>c.classList.add('jiggle'));
+}
+function exitEditMode() {
+  editMode=false;
+  document.getElementById('done-btn').classList.remove('visible');
+  document.querySelectorAll('.icon-cell').forEach(c=>c.classList.remove('jiggle'));
+}
+document.getElementById('done-btn').onclick=exitEditMode;
+
+// long press on empty space → settings
+document.getElementById('home').addEventListener('contextmenu',e=>e.preventDefault());
+
+// ── OPEN APP ──
+function openApp(id) {
+  const app=items.find(i=>i.id===id); if(!app||app.type!=='app') return;
+  activeAppId=id;
+  document.getElementById('runner-title').textContent=(app.iconData?.type==='emoji'?app.iconData.value+' ':'')+app.name;
+  loadFrame(app);
+  showScreen('runner');
+}
+
+function loadFrame(app) {
+  const iframe=document.getElementById('runner-iframe');
+  const K='appshelf_data_'+app.id;
+  const proxy=`<script>(function(){var K='${K}',_s={};try{_s=JSON.parse(localStorage.getItem(K)||'{}');}catch(e){}var L={getItem:function(k){return Object.prototype.hasOwnProperty.call(_s,k)?_s[k]:null;},setItem:function(k,v){_s[k]=String(v);try{localStorage.setItem(K,JSON.stringify(_s));}catch(e){}},removeItem:function(k){delete _s[k];try{localStorage.setItem(K,JSON.stringify(_s));}catch(e){}},clear:function(){_s={};try{localStorage.setItem(K,JSON.stringify(_s));}catch(e){}},key:function(i){return Object.keys(_s)[i]||null;},get length(){return Object.keys(_s).length;}};Object.defineProperty(window,'localStorage',{get:function(){return L;},configurable:true});})();<\/script>`;
+  let html=app.code||'';
+  if(!html.trim().toLowerCase().startsWith('<!') && !html.trim().toLowerCase().startsWith('<html')){
+    html=`<!DOCTYPE html><html><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><script src="https://unpkg.com/react@18/umd/react.development.js"><\/script><script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"><\/script><script src="https://unpkg.com/@babel/standalone/babel.min.js"><\/script><style>*{box-sizing:border-box}body{margin:0;font-family:system-ui,sans-serif}
+/* ── SYNC ── */
+.sync-bar {
+  position: fixed; top: calc(var(--safe-top) + 8px); left: 16px;
+  display: flex; align-items: center; gap: 7px;
+  background: rgba(255,255,255,0.12); backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.15);
+  border-radius: 20px; padding: 5px 12px 5px 8px;
+  font-size: 11px; color: rgba(255,255,255,0.8);
+  z-index: 50; cursor: pointer;
+  transition: opacity 0.2s;
+  max-width: 160px;
+}
+.sync-bar:active { opacity: 0.7; }
+.sync-dot {
+  width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0;
+  background: #888; transition: background 0.3s;
+}
+.sync-dot.synced  { background: #34c759; }
+.sync-dot.syncing { background: #ff9500; animation: pulse 1s infinite; }
+.sync-dot.error   { background: #ff3b30; }
+@keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
+
+/* Sync setup sheet additions */
+.passphrase-display {
+  background: #2a2a3a; border-radius: 12px; padding: 14px;
+  font-size: 13px; color: #aaa; margin-bottom: 8px;
+  display: flex; align-items: center; justify-content: space-between;
+}
+.passphrase-display span { color: #fff; font-weight: 600; letter-spacing: 0.05em; }
+.disconnect-btn {
+  background: rgba(255,59,48,0.15); border: 1px solid rgba(255,59,48,0.3);
+  border-radius: 10px; color: #ff6a6a; padding: 8px 14px;
+  font-size: 12px; cursor: pointer; width: 100%; margin-top: 8px;
+}
+.disconnect-btn:active { opacity: 0.7; }
+</style></head><body><div id="root"></div><script type="text/babel">${html}\nif(typeof App!=='undefined'){ReactDOM.createRoot(document.getElementById('root')).render(React.createElement(App))}<\/script></body></html>`;
+  }
+  const inj=html.includes('</head>')?html.replace('</head>',proxy+'</head>'):proxy+html;
+  const blob=new Blob([inj],{type:'text/html'});
+  const url=URL.createObjectURL(blob);
+  iframe.src=url; iframe.onload=()=>URL.revokeObjectURL(url);
+}
+
+// ── FOLDER ──
+function openFolder(id, focusName=false) {
+  const folder=items.find(i=>i.id===id); if(!folder) return;
+  openFolderId=id;
+  document.getElementById('folder-name-input').value=folder.name||'';
+  renderFolderGrid(folder);
+  document.getElementById('folder-overlay').classList.add('open');
+  if (focusName) setTimeout(()=>document.getElementById('folder-name-input').focus(),300);
+}
+function renderFolderGrid(folder) {
+  const g=document.getElementById('folder-apps-grid'); g.innerHTML='';
+  (folder.appIds||[]).forEach(aid=>{
+    const app=items.find(i=>i.id===aid); if(!app) return;
+    const cell=document.createElement('div'); cell.className='folder-app-cell';
+    cell.style.position='relative';
+
+    // remove-from-folder badge
+    const rmBadge=document.createElement('div');
+    rmBadge.textContent='✕';
+    rmBadge.style.cssText='position:absolute;top:-4px;left:calc(50% - 28px - 4px);width:18px;height:18px;border-radius:50%;background:#ff3b30;color:#fff;font-size:11px;font-weight:700;display:flex;align-items:center;justify-content:center;z-index:10;box-shadow:0 1px 4px rgba(0,0,0,0.4);cursor:pointer;';
+    rmBadge.addEventListener('click', e=>{
+      e.stopPropagation();
+      folder.appIds=folder.appIds.filter(id=>id!==aid);
+      save();
+      // if folder now has 0 or 1 app, dissolve it
+      if(folder.appIds.length===0){
+        items=items.filter(i=>i.id!==folder.id);
+        save(); closeFolderOverlay(); renderGrid(); showToast('Folder removed');
+      } else {
+        renderFolderGrid(folder); renderGrid();
+      }
+    });
+
+    const img=document.createElement('div'); img.className='icon-img';
+    img.style.cssText=iconBg(app.iconData,app.color)+'width:56px;height:56px;border-radius:13px;';
+    img.innerHTML=renderIconContent(app.iconData,56);
+    const lbl=document.createElement('div');
+    lbl.style.cssText='font-size:10px;color:#fff;max-width:60px;text-align:center;text-shadow:0 1px 2px rgba(0,0,0,0.5);overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;word-break:break-word;';
+    lbl.textContent=app.name;
+    cell.appendChild(rmBadge);
+    cell.appendChild(img); cell.appendChild(lbl);
+    cell.onclick=()=>{ closeFolderOverlay(); setTimeout(()=>openApp(aid),200); };
+    g.appendChild(cell);
+  });
+}
+function closeFolderOverlay() {
+  // save folder name
+  if (openFolderId) {
+    const folder=items.find(i=>i.id===openFolderId);
+    if(folder){ folder.name=document.getElementById('folder-name-input').value||'Folder'; save(); renderGrid(); }
+  }
+  document.getElementById('folder-overlay').classList.remove('open');
+  openFolderId=null;
+}
+document.getElementById('folder-close-btn').onclick=closeFolderOverlay;
+document.getElementById('folder-backdrop').onclick=closeFolderOverlay;
+
+// ── SCREENS ──
+function showScreen(id) {
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  document.getElementById(id).classList.add('active');
+}
+document.getElementById('back-btn').onclick=()=>{ showScreen('home'); activeAppId=null; };
+document.getElementById('runner-edit-btn').onclick=()=>{ if(activeAppId) openEditScreen(activeAppId); };
+
+// ── ICON PICKER LOGIC ──
+function setupIconPicker(prefix, iconDataRef, previewId) {
+  const preview=document.getElementById(previewId);
+  const fileInput=document.getElementById(prefix+'-file-input');
+  const emojiTray=document.getElementById(prefix+'-emoji-tray');
+
+  function updatePreview() {
+    const d=iconDataRef();
+    preview.style.cssText='';
+    if(d.type==='image'){preview.innerHTML=`<img src="${d.value}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:12px;">`; preview.style.fontSize='0';}
+    else{preview.innerHTML=`<span style="font-size:26px">${d.value||'📱'}</span>`;}
+  }
+
+  document.getElementById(prefix+'-upload-btn').onclick=()=>fileInput.click();
+  fileInput.onchange=e=>{
+    const file=e.target.files[0]; if(!file) return;
+    const reader=new FileReader();
+    reader.onload=ev=>{ iconDataRef({type:'image',value:ev.target.result}); updatePreview(); };
+    reader.readAsDataURL(file);
+  };
+
+  document.getElementById(prefix+'-emoji-toggle').onclick=()=>{
+    const open=emojiTray.style.display==='none';
+    emojiTray.style.display=open?'':'none';
+    if(open) renderEmojiPicker(prefix+'-emoji-picker', iconDataRef().value, e=>{iconDataRef({type:'emoji',value:e}); updatePreview();});
+  };
+  updatePreview();
+}
+
+// proxy getters/setters for icon state
+setupIconPicker('add',
+  function(v){ if(v!==undefined) addIconData=v; return addIconData; },
+  'add-icon-preview'
+);
+setupIconPicker('edit',
+  function(v){ if(v!==undefined) editIconData=v; return editIconData; },
+  'edit-icon-preview'
+);
+
+function renderEmojiPicker(id, current, onSel) {
+  const c=document.getElementById(id); if(!c) return; c.innerHTML='';
+  EMOJIS.forEach(e=>{
+    const b=document.createElement('button'); b.className='emoji-btn'+(e===current?' sel':'');
+    b.textContent=e;
+    b.onclick=()=>{ onSel(e); renderEmojiPicker(id,e,onSel); };
+    c.appendChild(b);
+  });
+}
+
+// ── ADD APP ──
+document.getElementById('add-fab').onclick=()=>{
+  addIconData={type:'emoji',value:'📱'};
+  document.getElementById('app-name').value='';
+  document.getElementById('app-code').value='';
+  document.getElementById('add-emoji-tray').style.display='none';
+  document.getElementById('add-file-input').value='';
+  // reset preview
+  const prev=document.getElementById('add-icon-preview');
+  prev.innerHTML='<span style="font-size:26px">📱</span>';
+  document.getElementById('add-sheet').classList.add('open');
+  setTimeout(()=>document.getElementById('app-name').focus(),380);
+};
+document.getElementById('add-backdrop').onclick=()=>document.getElementById('add-sheet').classList.remove('open');
+document.getElementById('save-app-btn').onclick=()=>{
+  const name=document.getElementById('app-name').value.trim();
+  const code=document.getElementById('app-code').value.trim();
+  if(!name){showToast('Give your app a name!');return;}
+  if(!code){showToast('Paste some code first!');return;}
+  const color=COLORS[items.filter(i=>i.type==='app').length%COLORS.length];
+  const app={type:'app',id:genId(),name,iconData:{...addIconData},code,color,createdAt:Date.now()};
+  items.push(app); save();
+  document.getElementById('add-sheet').classList.remove('open');
+  renderGrid();
+  setTimeout(()=>openApp(app.id),350);
+};
+
+// ── SETTINGS ──
+document.getElementById('settings-btn') && (document.getElementById('settings-btn').onclick=()=>{ renderWallpaperGrid(); document.getElementById('settings-sheet').classList.add('open'); });
+document.getElementById('settings-backdrop').onclick=()=>document.getElementById('settings-sheet').classList.remove('open');
+
+// long-hold on wallpaper bg → settings
+let bgHoldTimer=null;
+document.getElementById('home').addEventListener('touchstart',e=>{
+  if(e.target.closest('.icon-cell,.fab')) return;
+  bgHoldTimer=setTimeout(()=>{ bgHoldTimer=null; renderWallpaperGrid(); document.getElementById('settings-sheet').classList.add('open'); },700);
+},{passive:true});
+document.getElementById('home').addEventListener('touchend',()=>{ if(bgHoldTimer){clearTimeout(bgHoldTimer);bgHoldTimer=null;} });
+document.getElementById('home').addEventListener('touchmove',()=>{ if(bgHoldTimer){clearTimeout(bgHoldTimer);bgHoldTimer=null;} },{passive:true});
+
+// ── EDIT SCREEN ──
+function openEditScreen(id) {
+  const app=items.find(i=>i.id===id); if(!app||app.type!=='app') return;
+  document.getElementById('edit-name').value=app.name;
+  document.getElementById('edit-code').value=app.code||'';
+  editIconData={...(app.iconData||{type:'emoji',value:'📱'})};
+  document.getElementById('edit-emoji-tray').style.display='none';
+  // reset preview
+  const prev=document.getElementById('edit-icon-preview');
+  if(editIconData.type==='image'){prev.innerHTML=`<img src="${editIconData.value}" alt="" style="width:100%;height:100%;object-fit:cover;border-radius:12px;">`;}
+  else{prev.innerHTML=`<span style="font-size:26px">${editIconData.value||'📱'}</span>`;}
+  showScreen('edit-screen');
+}
+function saveEdit() {
+  const app=items.find(i=>i.id===activeAppId); if(!app) return;
+  const name=document.getElementById('edit-name').value.trim();
+  const code=document.getElementById('edit-code').value.trim();
+  if(!name||!code){showToast('Name and code required');return;}
+  app.name=name; app.code=code; app.iconData={...editIconData}; app.updatedAt=Date.now();
+  save(); showToast('✓ Saved'); showScreen('runner');
+  document.getElementById('runner-title').textContent=(app.iconData?.type==='emoji'?app.iconData.value+' ':'')+app.name;
+  loadFrame(app);
+  renderGrid();
+}
+document.getElementById('edit-cancel-btn').onclick=()=>showScreen('runner');
+document.getElementById('save-edit-top').onclick=saveEdit;
+document.getElementById('save-edit-btn').onclick=saveEdit;
+
+
+// ── SYNC ──
+let syncConfig = null; // {url, passphrase}
+let syncTimeout = null;
+
+function loadSyncConfig() {
+  try { syncConfig = JSON.parse(localStorage.getItem('appshelf_sync')||'null'); } catch(e){ syncConfig=null; }
+}
+function saveSyncConfig() {
+  if (syncConfig) localStorage.setItem('appshelf_sync', JSON.stringify(syncConfig));
+  else localStorage.removeItem('appshelf_sync');
+}
+
+function setSyncStatus(state, label) {
+  const bar = document.getElementById('sync-bar');
+  const dot = document.getElementById('sync-dot');
+  const lbl = document.getElementById('sync-label');
+  const settingsStatus = document.getElementById('settings-sync-status');
+  if (!syncConfig) { bar.style.display='none'; if(settingsStatus) settingsStatus.textContent='Not connected'; return; }
+  bar.style.display='flex';
+  dot.className='sync-dot '+state;
+  lbl.textContent=label;
+  if(settingsStatus) settingsStatus.textContent=state==='synced'?'Connected':'Syncing...';
+}
+
+function buildSyncPayload() {
+  // collect all app data from localStorage
+  const appData = {};
+  items.filter(i=>i.type==='app').forEach(app=>{
+    const d=localStorage.getItem('appshelf_data_'+app.id);
+    if(d) appData[app.id]=d;
+  });
+  // also collect app data for apps inside folders
+  items.filter(i=>i.type==='folder').forEach(f=>{
+    (f.appIds||[]).forEach(aid=>{
+      const d=localStorage.getItem('appshelf_data_'+aid);
+      if(d) appData[aid]=d;
+    });
+  });
+  return { items, wallpaper: currentWallpaper, appData };
+}
+
+async function syncUp() {
+  if (!syncConfig) return;
+  setSyncStatus('syncing','Saving...');
+  try {
+    const payload = buildSyncPayload();
+    const res = await fetch(syncConfig.url+'/sync', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Passphrase':syncConfig.passphrase},
+      body: JSON.stringify(payload)
+    });
+    if (!res.ok) throw new Error('HTTP '+res.status);
+    setSyncStatus('synced','Synced');
+  } catch(e) {
+    setSyncStatus('error','Sync failed');
+    console.warn('Sync up failed:',e);
+  }
+}
+
+async function syncDown() {
+  if (!syncConfig) return;
+  setSyncStatus('syncing','Loading...');
+  try {
+    const res = await fetch(syncConfig.url+'/sync', {
+      headers:{'X-Passphrase':syncConfig.passphrase}
+    });
+    if (!res.ok) throw new Error('HTTP '+res.status);
+    const data = await res.json();
+    if (data.items) {
+      items = data.items;
+      save();
+    }
+    if (data.wallpaper) {
+      applyWallpaper(data.wallpaper, true);
+    }
+    if (data.appData) {
+      Object.entries(data.appData).forEach(([id,val])=>{
+        localStorage.setItem('appshelf_data_'+id, val);
+      });
+    }
+    renderGrid();
+    setSyncStatus('synced','Synced');
+    return true;
+  } catch(e) {
+    setSyncStatus('error','Sync failed');
+    console.warn('Sync down failed:',e);
+    return false;
+  }
+}
+
+// debounced auto-sync after saves
+function scheduleSyncUp() {
+  if (!syncConfig) return;
+  if (syncTimeout) clearTimeout(syncTimeout);
+  syncTimeout = setTimeout(syncUp, 1500);
+}
+
+// patch save() to also schedule sync
+const _origSave = save;
+function save() { _origSave(); scheduleSyncUp(); }
+
+// ── SYNC UI ──
+document.getElementById('sync-bar').onclick=()=>{
+  updateSyncSheet();
+  document.getElementById('sync-sheet').classList.add('open');
+};
+document.getElementById('sync-backdrop').onclick=()=>document.getElementById('sync-sheet').classList.remove('open');
+
+document.getElementById('open-sync-btn').onclick=()=>{
+  document.getElementById('settings-sheet').classList.remove('open');
+  setTimeout(()=>{ updateSyncSheet(); document.getElementById('sync-sheet').classList.add('open'); }, 200);
+};
+
+function updateSyncSheet() {
+  const connected = !!syncConfig;
+  document.getElementById('sync-connected-view').style.display = connected?'':'none';
+  document.getElementById('sync-setup-view').style.display = connected?'none':'';
+  if (connected) {
+    document.getElementById('connected-phrase').textContent = syncConfig.passphrase;
+  }
+}
+
+document.getElementById('connect-sync-btn').onclick = async ()=>{
+  const url = document.getElementById('worker-url-input').value.trim().replace(/\/$/,'');
+  const pass = document.getElementById('passphrase-input').value.trim();
+  if (!url) { showToast('Enter your Worker URL'); return; }
+  if (pass.length < 4) { showToast('Passphrase must be 4+ chars'); return; }
+  syncConfig = {url, passphrase: pass};
+  saveSyncConfig();
+  document.getElementById('sync-sheet').classList.remove('open');
+  showToast('Connecting...');
+  const ok = await syncDown();
+  if (ok) {
+    showToast('✓ Connected & synced!');
+    updateSyncSheet();
+  } else {
+    showToast('Could not reach Worker — check URL');
+    syncConfig = null; saveSyncConfig();
+  }
+};
+
+document.getElementById('sync-now-btn').onclick = async ()=>{
+  document.getElementById('sync-sheet').classList.remove('open');
+  await syncDown();
+  showToast('✓ Synced');
+};
+
+document.getElementById('disconnect-btn').onclick = ()=>{
+  if (!confirm('Disconnect cloud sync? Your local data stays intact.')) return;
+  syncConfig = null; saveSyncConfig();
+  setSyncStatus('','');
+  document.getElementById('sync-sheet').classList.remove('open');
+  showToast('Disconnected');
+};
+
+// ── INIT ──
+load();
+loadSyncConfig();
+applyWallpaper(currentWallpaper, false);
+renderGrid();
+// initial sync on load
+if (syncConfig) {
+  syncDown();
+} else {
+  setSyncStatus('','');
+}
+
+document.addEventListener('touchmove',e=>{
+  if(e.target.closest('.sheet-scroll,.home-grid-wrap,textarea,#edit-screen > div')) return;
+  e.preventDefault();
+},{passive:false});
+</script>
+</body>
+</html>
