@@ -733,9 +733,15 @@ function saveItems() {
   const stripped = items.map(item => {
     if (item.type !== 'app') return item;
     const i = {...item};
+    // Store image data separately
     if (i.icon && i.icon.type === 'image' && i.icon.value && i.icon.value.length > 100) {
       localStorage.setItem('as_img_' + i.id, i.icon.value);
       i.icon = {type:'image', ref: i.id};
+    }
+    // Store app code separately - it can be very large
+    if (i.code && i.code.length > 0) {
+      localStorage.setItem('as_code_' + i.id, i.code);
+      i.code = null; // don't store in items array
     }
     return i;
   });
@@ -752,6 +758,14 @@ function restoreImages() {
     }
     return item;
   });
+}
+
+// Load a single app's code on demand (not at startup)
+function getAppCode(id) {
+  const app = items.find(i=>i.id===id);
+  if (!app) return '';
+  if (app.code) return app.code; // already loaded
+  return localStorage.getItem('as_code_' + id) || '';
 }
 
 function getAppData(id)      { try { return JSON.parse(localStorage.getItem('as_d_'+id)||'{}'); } catch(e){return{};} }
@@ -893,7 +907,7 @@ function confirmDelete(id) {
     ? `Delete folder "${item.name}"?\n\nApps inside will return to your home screen.`
     : `Delete "${item.name}"?\n\nThis will also erase its saved data.`;
   if (!confirm(msg)) return;
-  if (item.type==='app') { removeAppData(id); localStorage.removeItem('as_img_'+id); }
+  if (item.type==='app') { removeAppData(id); localStorage.removeItem('as_img_'+id); localStorage.removeItem('as_code_'+id); }
   items = items.filter(i=>i.id!==id);
   saveItems(); renderGrid();
   const vis = visibleItems();
@@ -1185,7 +1199,7 @@ function loadFrame(app) {
     try{Object.defineProperty(window,'localStorage',{get:function(){return P;},configurable:true});}catch(e){}
   })();<\/scr`+`ipt>`;
 
-  let html = (app.code||'').trim();
+  let html = getAppCode(app.id).trim();
 
   // auto-wrap bare JSX/React
   if (!html.toLowerCase().startsWith('<!') && !html.toLowerCase().startsWith('<html')) {
@@ -1206,9 +1220,10 @@ if(typeof App!=='undefined'){ReactDOM.createRoot(document.getElementById('root')
   // inject proxy right after <head> tag
   const injected = html.replace(/<head([^>]*)>/i, (m) => m + proxy);
 
-  // Use srcdoc instead of blob URL so fetch/API calls aren't blocked by blob: origin
-  frame.removeAttribute('src');
-  frame.srcdoc = injected;
+  const blob = new Blob([injected], {type:'text/html'});
+  const url = URL.createObjectURL(blob);
+  frame.src = url;
+  frame.onload = () => URL.revokeObjectURL(url);
 }
 
 // ─────────────────────────────────────────
@@ -1304,7 +1319,7 @@ function saveEdit() {
   const code = document.getElementById('edit-code-input').value.trim();
   if (!name) { toast('App needs a name'); return; }
   if (!code) { toast('Paste some code first'); return; }
-  app.name = name; app.code = code; app.icon = {...editIcon};
+  app.name = name; app.code = code; app.icon = {...editIcon}; // saveItems will strip code out
   saveItems(); renderGrid();
   toast('✓ Saved — data preserved');
   showScreen('runner');
@@ -1441,14 +1456,23 @@ function scheduleSyncUp() {
 }
 
 function buildPayload() {
-  const appData = {};
+  const appData = {}, appCode = {}, appImages = {};
   const allAppIds = items.filter(i=>i.type==='app').map(i=>i.id);
   items.filter(i=>i.type==='folder').forEach(f=>(f.appIds||[]).forEach(id=>{ if(!allAppIds.includes(id)) allAppIds.push(id); }));
   allAppIds.forEach(id => {
     const d = localStorage.getItem('as_d_'+id);
     if (d) appData[id] = d;
+    const c = localStorage.getItem('as_code_'+id);
+    if (c) appCode[id] = c;
+    const img = localStorage.getItem('as_img_'+id);
+    if (img) appImages[id] = img;
   });
-  return { items, wallpaper, appData };
+  // Strip code/images from items for the payload too
+  const strippedItems = items.map(i => {
+    if (i.type!=='app') return i;
+    const x = {...i}; delete x.code; return x;
+  });
+  return { items: strippedItems, wallpaper, appData, appCode, appImages };
 }
 
 async function syncUp() {
@@ -1476,7 +1500,14 @@ async function syncDown() {
     });
     if (!res.ok) throw new Error('HTTP '+res.status);
     const data = await res.json();
-    if (Array.isArray(data.items)) { items = data.items; localStorage.setItem('as_items', JSON.stringify(items)); restoreImages(); }
+    if (Array.isArray(data.items)) {
+          items = data.items;
+          // restore code and images from synced appData if present
+          if (data.appCode) Object.entries(data.appCode).forEach(([id,v])=>localStorage.setItem('as_code_'+id,v));
+          if (data.appImages) Object.entries(data.appImages).forEach(([id,v])=>localStorage.setItem('as_img_'+id,v));
+          localStorage.setItem('as_items', JSON.stringify(items));
+          restoreImages();
+        }
     if (data.wallpaper) applyWallpaper(data.wallpaper);
     if (data.appData) Object.entries(data.appData).forEach(([id,v])=>localStorage.setItem('as_d_'+id,v));
     renderGrid();
