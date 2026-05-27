@@ -196,6 +196,23 @@ body.wp-light #done-btn { color: #111; border-color: rgba(0,0,0,0.15); backgroun
 #sync-indicator.error   { background: #ff3b30; display: block; }
 @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.3} }
 
+/* ── SETTINGS GEAR ── */
+#settings-gear {
+  position: fixed;
+  top: calc(var(--st) + 10px);
+  left: 16px;
+  width: 36px; height: 36px; border-radius: 50%;
+  background: rgba(255,255,255,0.15);
+  backdrop-filter: blur(10px); -webkit-backdrop-filter: blur(10px);
+  border: 1px solid rgba(255,255,255,0.2);
+  color: rgba(255,255,255,0.7); font-size: 18px;
+  display: flex; align-items: center; justify-content: center;
+  cursor: pointer; z-index: 40;
+  transition: opacity 0.15s;
+}
+#settings-gear:active { opacity: 0.6; }
+body.wp-light #settings-gear { color: rgba(0,0,0,0.5); border-color: rgba(0,0,0,0.15); background: rgba(255,255,255,0.5); }
+
 /* ── ADD FAB ── */
 #add-fab {
   position: fixed;
@@ -506,6 +523,7 @@ body.wp-light #toast { background: rgba(240,240,252,0.95); color: #111; border-c
     </div>
   </div>
   <div id="sync-indicator"></div>
+  <button id="settings-gear" title="Settings">⚙︎</button>
   <button id="done-btn">Done</button>
   <button id="add-fab">+</button>
 </div>
@@ -1157,6 +1175,8 @@ function exitEditMode() {
   document.querySelectorAll('.icon-cell').forEach(c=>c.classList.remove('jiggling'));
 }
 document.getElementById('done-btn').onclick = exitEditMode;
+
+document.getElementById('settings-gear').onclick = () => { renderWpGrid(); openSheet('settings-sheet'); };
 
 // long-press on empty background → settings
 let bgTimer = null;
