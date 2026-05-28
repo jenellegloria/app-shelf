@@ -1211,11 +1211,9 @@ function loadFrame(app) {
     var K='${K}';
     var _s={};
     try{_s=JSON.parse(decodeURIComponent(escape(atob('${existingDataB64}'))));}catch(e){}
+    var _parent = window.parent;
     function persist(){
-      // srcdoc + allow-same-origin shares parent localStorage directly
-      try{localStorage.setItem(K,JSON.stringify(_s));}catch(e){
-        try{window.parent.localStorage.setItem(K,JSON.stringify(_s));}catch(e2){}
-      }
+      try{_parent.localStorage.setItem(K,JSON.stringify(_s));}catch(e){}
     }
     var P={
       getItem:function(k){return Object.prototype.hasOwnProperty.call(_s,k)?_s[k]:null;},
