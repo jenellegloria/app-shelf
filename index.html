@@ -1212,7 +1212,10 @@ function loadFrame(app) {
     var _s={};
     try{_s=JSON.parse(decodeURIComponent(escape(atob('${existingDataB64}'))));}catch(e){}
     function persist(){
-      try{window.parent.localStorage.setItem(K,JSON.stringify(_s));}catch(e){}
+      // srcdoc + allow-same-origin shares parent localStorage directly
+      try{localStorage.setItem(K,JSON.stringify(_s));}catch(e){
+        try{window.parent.localStorage.setItem(K,JSON.stringify(_s));}catch(e2){}
+      }
     }
     var P={
       getItem:function(k){return Object.prototype.hasOwnProperty.call(_s,k)?_s[k]:null;},
@@ -1259,10 +1262,11 @@ if(typeof App!=='undefined'){ReactDOM.createRoot(document.getElementById('root')
   }
   if (!injected.includes(proxy)) injected = proxy + html;
 
-  const blob = new Blob([injected], {type:'text/html'});
-  const url = URL.createObjectURL(blob);
-  frame.src = url;
-  frame.onload = () => URL.revokeObjectURL(url);
+  // Use srcdoc with allow-same-origin so iframe shares AppShelf's origin
+  // This means the proxy can directly access AppShelf's localStorage
+  frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-same-origin allow-modals allow-popups');
+  frame.removeAttribute('src');
+  frame.srcdoc = injected;
 }
 
 // ─────────────────────────────────────────
