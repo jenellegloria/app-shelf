@@ -1200,18 +1200,52 @@ function openApp(id) {
   showScreen('runner');
 }
 
+function buildStorageShim(appId, initialData) {
+  // A self-contained localStorage shim that routes all calls through postMessage.
+  // Injected at the top of every app's HTML so apps never touch real localStorage.
+  const dataJson = JSON.stringify(initialData);
+  return `<script>
+(function(){
+  var _store = ${dataJson};
+  var _appId = ${JSON.stringify(appId)};
+  function _save(){ window.parent.postMessage({type:'as_storage_set',appId:_appId,store:JSON.stringify(_store)},'*'); }
+  var _ls = {
+    setItem: function(k,v){ _store[String(k)]=String(v); _save(); },
+    getItem: function(k){ var v=_store[String(k)]; return v===undefined?null:v; },
+    removeItem: function(k){ delete _store[String(k)]; _save(); },
+    clear: function(){ _store={}; _save(); },
+    key: function(n){ return Object.keys(_store)[n]||null; },
+    get length(){ return Object.keys(_store).length; }
+  };
+  try{ Object.defineProperty(window,'localStorage',{get:function(){return _ls;},configurable:true}); }catch(e){}
+  try{ Object.defineProperty(window,'sessionStorage',{get:function(){return _ls;},configurable:true}); }catch(e){}
+})();
+<\/script>`;
+}
+
 function loadFrame(app) {
   const frame = document.getElementById('app-frame');
   frame.removeAttribute('sandbox');
   frame.removeAttribute('srcdoc');
 
+  // Load saved data for this app to seed the shim
+  const savedData = JSON.parse(localStorage.getItem('as_d_' + app.id) || '{}');
+  const shim = buildStorageShim(app.id, savedData);
+
   let html = getAppCode(app.id).trim();
 
-  // auto-wrap bare JSX/React
-  if (!html.toLowerCase().startsWith('<!') && !html.toLowerCase().startsWith('<html')) {
+  // Inject shim: after <head> if present, otherwise prepend
+  if (html.toLowerCase().includes('<head>')) {
+    html = html.replace(/<head>/i, '<head>' + shim);
+  } else if (html.toLowerCase().startsWith('<!') || html.toLowerCase().startsWith('<html')) {
+    // Has doctype/html tag but no <head> — inject after <body> or at top
+    html = shim + html;
+  } else {
+    // Bare JSX/React — auto-wrap
     html = `<!DOCTYPE html><html><head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
+${shim}
 <script src="https://unpkg.com/react@18/umd/react.development.js"><\/script>
 <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js"><\/script>
 <script src="https://unpkg.com/@babel/standalone/babel.min.js"><\/script>
@@ -1223,20 +1257,11 @@ if(typeof App!=='undefined'){ReactDOM.createRoot(document.getElementById('root')
 <\/script></body></html>`;
   }
 
-  // Load via blob URL - no sandbox so localStorage works in the iframe
   const blob = new Blob([html], {type: 'text/html'});
   const url = URL.createObjectURL(blob);
   frame._appId = app.id;
   frame.src = url;
-  frame.onload = () => {
-    URL.revokeObjectURL(url);
-    // Restore previously saved data into iframe's localStorage
-    try {
-      const saved = JSON.parse(localStorage.getItem('as_d_' + app.id) || '{}');
-      const iLS = frame.contentWindow.localStorage;
-      Object.entries(saved).forEach(([k,v]) => iLS.setItem(k,v));
-    } catch(e) { console.log('restore err', e); }
-  };
+  frame.onload = () => { URL.revokeObjectURL(url); };
 }
 
 // ─────────────────────────────────────────
@@ -1310,18 +1335,8 @@ function showScreen(id) {
 
 document.getElementById('runner-back').onclick = () => {
   const frame = document.getElementById('app-frame');
-  if (frame._appId) {
-    try {
-      const iLS = frame.contentWindow.localStorage;
-      const snapshot = {};
-      for (let i = 0; i < iLS.length; i++) {
-        const k = iLS.key(i);
-        snapshot[k] = iLS.getItem(k);
-      }
-      localStorage.setItem('as_d_' + frame._appId, JSON.stringify(snapshot));
-    } catch(e) { console.log('snapshot err', e); }
-    frame._appId = null;
-  }
+  frame._appId = null;
+  frame.src = 'about:blank';
   showScreen('home');
   activeAppId = null;
 };
@@ -1582,6 +1597,19 @@ document.getElementById('disconnect-btn').onclick = () => {
   setSyncDot(''); refreshSyncSheet(); closeSheet('sync-sheet');
   toast('Disconnected');
 };
+
+// ─────────────────────────────────────────
+// STORAGE SHIM MESSAGE HANDLER
+// Apps use a localStorage shim that sends all writes here via postMessage.
+// This avoids the broken cross-origin iframe localStorage access entirely.
+// ─────────────────────────────────────────
+window.addEventListener('message', e => {
+  if (!e.data || e.data.type !== 'as_storage_set') return;
+  const { appId, store } = e.data;
+  if (!appId || typeof store !== 'string') return;
+  localStorage.setItem('as_d_' + appId, store);
+  scheduleSyncUp();
+});
 
 // ─────────────────────────────────────────
 // INIT
