@@ -1222,7 +1222,14 @@ function loadFrame(app) {
       key:function(i){return Object.keys(_s)[i]||null;},
       get length(){return Object.keys(_s).length;}
     };
-    try{Object.defineProperty(window,'localStorage',{get:function(){return P;},configurable:true});}catch(e){}
+    var defined = false;
+    try{
+      Object.defineProperty(window,'localStorage',{get:function(){return P;},configurable:true,enumerable:true});
+      defined = true;
+    }catch(e){}
+    if(!defined){
+      try{ window.localStorage = P; }catch(e){}
+    }
   })();<\/scr`+`ipt>`;
 
   let html = getAppCode(app.id).trim();
@@ -1243,8 +1250,14 @@ if(typeof App!=='undefined'){ReactDOM.createRoot(document.getElementById('root')
 <\/script></body></html>`;
   }
 
-  // inject proxy right after <head> tag
-  const injected = html.replace(/<head([^>]*)>/i, (m) => m + proxy);
+  // inject proxy as very first thing in document, before any other scripts
+  let injected;
+  if (html.toLowerCase().includes('<!doctype')) {
+    injected = html.replace(/<html([^>]*)>/i, (m) => m + proxy);
+  } else {
+    injected = proxy + html;
+  }
+  if (!injected.includes(proxy)) injected = proxy + html;
 
   const blob = new Blob([injected], {type:'text/html'});
   const url = URL.createObjectURL(blob);
