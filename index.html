@@ -1202,7 +1202,9 @@ function openApp(id) {
 
 function loadFrame(app) {
   const frame = document.getElementById('app-frame');
-  // srcdoc with allow-same-origin: apps share AppShelf localStorage directly
+  frame.removeAttribute('sandbox');
+  frame.removeAttribute('srcdoc');
+
   let html = getAppCode(app.id).trim();
 
   // auto-wrap bare JSX/React
@@ -1221,10 +1223,20 @@ if(typeof App!=='undefined'){ReactDOM.createRoot(document.getElementById('root')
 <\/script></body></html>`;
   }
 
-  // srcdoc + allow-same-origin: iframe shares AppShelf's origin and localStorage
-  frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-same-origin allow-modals allow-popups');
-  frame.removeAttribute('src');
-  frame.srcdoc = html;
+  // Load via blob URL - no sandbox so localStorage works in the iframe
+  const blob = new Blob([html], {type: 'text/html'});
+  const url = URL.createObjectURL(blob);
+  frame._appId = app.id;
+  frame.src = url;
+  frame.onload = () => {
+    URL.revokeObjectURL(url);
+    // Restore previously saved data into iframe's localStorage
+    try {
+      const saved = JSON.parse(localStorage.getItem('as_d_' + app.id) || '{}');
+      const iLS = frame.contentWindow.localStorage;
+      Object.entries(saved).forEach(([k,v]) => iLS.setItem(k,v));
+    } catch(e) { console.log('restore err', e); }
+  };
 }
 
 // ─────────────────────────────────────────
@@ -1296,7 +1308,23 @@ function showScreen(id) {
   el.classList.add('active');
 }
 
-document.getElementById('runner-back').onclick = () => { showScreen('home'); activeAppId=null; };
+document.getElementById('runner-back').onclick = () => {
+  const frame = document.getElementById('app-frame');
+  if (frame._appId) {
+    try {
+      const iLS = frame.contentWindow.localStorage;
+      const snapshot = {};
+      for (let i = 0; i < iLS.length; i++) {
+        const k = iLS.key(i);
+        snapshot[k] = iLS.getItem(k);
+      }
+      localStorage.setItem('as_d_' + frame._appId, JSON.stringify(snapshot));
+    } catch(e) { console.log('snapshot err', e); }
+    frame._appId = null;
+  }
+  showScreen('home');
+  activeAppId = null;
+};
 document.getElementById('runner-edit-btn').onclick = () => { if(activeAppId) openEditScreen(activeAppId); };
 
 // ─────────────────────────────────────────
