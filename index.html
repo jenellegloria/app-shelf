@@ -1202,37 +1202,7 @@ function openApp(id) {
 
 function loadFrame(app) {
   const frame = document.getElementById('app-frame');
-  const K = 'as_d_' + app.id;
-
-  // localStorage proxy using postMessage — blob URLs have isolated storage
-  // so we relay all reads/writes to the parent (AppShelf) via postMessage
-  const existingDataB64 = btoa(unescape(encodeURIComponent(localStorage.getItem(K) || '{}')));
-  const proxy = `<scr`+`ipt>(function(){
-    var K='${K}';
-    var _s={};
-    try{_s=JSON.parse(decodeURIComponent(escape(atob('${existingDataB64}'))));}catch(e){}
-    var _parent = window.parent;
-    function persist(){
-      try{_parent.localStorage.setItem(K,JSON.stringify(_s));}catch(e){}
-    }
-    var P={
-      getItem:function(k){return Object.prototype.hasOwnProperty.call(_s,k)?_s[k]:null;},
-      setItem:function(k,v){_s[k]=String(v);persist();},
-      removeItem:function(k){delete _s[k];persist();},
-      clear:function(){_s={};persist();},
-      key:function(i){return Object.keys(_s)[i]||null;},
-      get length(){return Object.keys(_s).length;}
-    };
-    var defined = false;
-    try{
-      Object.defineProperty(window,'localStorage',{get:function(){return P;},configurable:true,enumerable:true});
-      defined = true;
-    }catch(e){}
-    if(!defined){
-      try{ window.localStorage = P; }catch(e){}
-    }
-  })();<\/scr`+`ipt>`;
-
+  // srcdoc with allow-same-origin: apps share AppShelf localStorage directly
   let html = getAppCode(app.id).trim();
 
   // auto-wrap bare JSX/React
@@ -1251,20 +1221,10 @@ if(typeof App!=='undefined'){ReactDOM.createRoot(document.getElementById('root')
 <\/script></body></html>`;
   }
 
-  // inject proxy as very first thing in document, before any other scripts
-  let injected;
-  if (html.toLowerCase().includes('<!doctype')) {
-    injected = html.replace(/<html([^>]*)>/i, (m) => m + proxy);
-  } else {
-    injected = proxy + html;
-  }
-  if (!injected.includes(proxy)) injected = proxy + html;
-
-  // Use srcdoc with allow-same-origin so iframe shares AppShelf's origin
-  // This means the proxy can directly access AppShelf's localStorage
+  // srcdoc + allow-same-origin: iframe shares AppShelf's origin and localStorage
   frame.setAttribute('sandbox', 'allow-scripts allow-forms allow-same-origin allow-modals allow-popups');
   frame.removeAttribute('src');
-  frame.srcdoc = injected;
+  frame.srcdoc = html;
 }
 
 // ─────────────────────────────────────────
