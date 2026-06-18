@@ -1203,7 +1203,8 @@ function openApp(id) {
 function buildStorageShim(appId, initialData) {
   // A self-contained localStorage shim that routes all calls through postMessage.
   // Injected at the top of every app's HTML so apps never touch real localStorage.
-  const dataJson = JSON.stringify(initialData);
+  // Escape </script> so stored app code can't break out of the injected script tag
+  const dataJson = JSON.stringify(initialData).replace(/<\/script>/gi, '<\\/script>');
   return `<script>
 (function(){
   var _store = ${dataJson};
