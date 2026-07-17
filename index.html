@@ -712,6 +712,7 @@ let openFolderId = null;
 let wallpaper    = 'default';
 let syncCfg      = null; // {url, passphrase}
 let syncTimer    = null;
+let syncDirty    = false; // unsaved changes pending upload
 
 // icon form state
 let addIcon  = { type:'emoji', value:'📊' };
@@ -925,7 +926,7 @@ function confirmDelete(id) {
     ? `Delete folder "${item.name}"?\n\nApps inside will return to your home screen.`
     : `Delete "${item.name}"?\n\nThis will also erase its saved data.`;
   if (!confirm(msg)) return;
-  if (item.type==='app') { removeAppData(id); localStorage.removeItem('as_img_'+id); localStorage.removeItem('as_code_'+id); }
+  if (item.type==='app') { removeAppData(id); localStorage.removeItem('as_img_'+id); localStorage.removeItem('as_code_'+id); localStorage.removeItem('as_ts_'+id); }
   items = items.filter(i=>i.id!==id);
   saveItems(); renderGrid();
   const vis = visibleItems();
@@ -1349,7 +1350,7 @@ function openEditScreen(id) {
   const app = items.find(i=>i.id===id);
   if (!app) return;
   document.getElementById('edit-name-input').value = app.name||'';
-  document.getElementById('edit-code-input').value = app.code||'';
+  document.getElementById('edit-code-input').value = getAppCode(id);
   editIcon = { ...(app.icon || {type:'emoji',value:'📊'}) };
   refreshIconPreview('edit', editIcon);
   document.getElementById('edit-emoji-grid').style.display = 'none';
@@ -1495,12 +1496,13 @@ function setSyncDot(state) {
 
 function scheduleSyncUp() {
   if (!syncCfg) return;
+  syncDirty = true;
   clearTimeout(syncTimer);
-  syncTimer = setTimeout(syncUp, 1800);
+  syncTimer = setTimeout(syncUp, 600);
 }
 
 function buildPayload() {
-  const appData = {}, appCode = {}, appImages = {};
+  const appData = {}, appCode = {}, appImages = {}, appDataTs = {};
   const allAppIds = items.filter(i=>i.type==='app').map(i=>i.id);
   items.filter(i=>i.type==='folder').forEach(f=>(f.appIds||[]).forEach(id=>{ if(!allAppIds.includes(id)) allAppIds.push(id); }));
   allAppIds.forEach(id => {
@@ -1510,18 +1512,21 @@ function buildPayload() {
     if (c) appCode[id] = c;
     const img = localStorage.getItem('as_img_'+id);
     if (img) appImages[id] = img;
+    const t = localStorage.getItem('as_ts_'+id);
+    if (t) appDataTs[id] = +t;
   });
   // Strip code/images from items for the payload too
   const strippedItems = items.map(i => {
     if (i.type!=='app') return i;
     const x = {...i}; delete x.code; return x;
   });
-  return { items: strippedItems, wallpaper, appData, appCode, appImages };
+  return { items: strippedItems, wallpaper, appData, appCode, appImages, appDataTs };
 }
 
 async function syncUp() {
   if (!syncCfg) return;
   setSyncDot('syncing');
+  syncDirty = false;
   try {
     const res = await fetch(syncCfg.url+'/sync', {
       method:'POST',
@@ -1531,9 +1536,28 @@ async function syncUp() {
     if (!res.ok) throw new Error('HTTP '+res.status);
     setSyncDot('synced');
   } catch(e) {
+    syncDirty = true; // didn't make it — try again on next opportunity
     setSyncDot('error');
   }
 }
+
+// Best-effort flush when the app is backgrounded/closed, so debounced
+// writes (like the Keeper's daily note) aren't lost to a dead timer.
+function flushSyncNow() {
+  if (!syncCfg || !syncDirty) return;
+  clearTimeout(syncTimer); syncTimer = null;
+  syncDirty = false;
+  try {
+    fetch(syncCfg.url+'/sync', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','X-Passphrase':syncCfg.passphrase},
+      body: JSON.stringify(buildPayload())
+    }).then(res => { if(res.ok) setSyncDot('synced'); else syncDirty = true; })
+      .catch(() => { syncDirty = true; });
+  } catch(e) { syncDirty = true; }
+}
+document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') flushSyncNow(); });
+window.addEventListener('pagehide', flushSyncNow);
 
 async function syncDown() {
   if (!syncCfg) return false;
@@ -1553,7 +1577,21 @@ async function syncDown() {
           restoreImages();
         }
     if (data.wallpaper) applyWallpaper(data.wallpaper);
-    if (data.appData) Object.entries(data.appData).forEach(([id,v])=>localStorage.setItem('as_d_'+id,v));
+    // Per-app merge: cloud data only wins if it's at least as new as local.
+    // Stops a stale cloud copy from erasing data written locally moments ago
+    // (e.g. when the last upload died because the app was closed).
+    let localNewer = false;
+    if (data.appData) Object.entries(data.appData).forEach(([id,v])=>{
+      const remoteTs = (data.appDataTs && data.appDataTs[id]) || 0;
+      const localTs  = +(localStorage.getItem('as_ts_'+id) || 0);
+      if (remoteTs >= localTs) {
+        localStorage.setItem('as_d_'+id, v);
+        if (remoteTs) localStorage.setItem('as_ts_'+id, String(remoteTs));
+      } else {
+        localNewer = true;
+      }
+    });
+    if (localNewer) scheduleSyncUp(); // push our fresher copy back up
     renderGrid();
     setSyncDot('synced');
     return true;
@@ -1608,6 +1646,7 @@ window.addEventListener('message', e => {
   const { appId, store } = e.data;
   if (!appId || typeof store !== 'string') return;
   localStorage.setItem('as_d_' + appId, store);
+  localStorage.setItem('as_ts_' + appId, String(Date.now()));
   scheduleSyncUp();
 });
 
